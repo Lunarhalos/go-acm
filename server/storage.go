@@ -1,4 +1,4 @@
-package internal
+package server
 
 type Storage interface {
 	Save(Config)
