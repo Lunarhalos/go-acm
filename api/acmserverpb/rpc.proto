@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package acmserverpb;
+
+option go_package = "github.com/Lunarhalos/go-acm/acmserverpb;acmserverpb";
+
+
+service ACM {
+  rpc Get(GetRequest) returns (GetResponse) {};
+  rpc Save(SaveRequest) returns (SaveResponse) {};
+  rpc History(HistoryRequest) returns (HistoryResponse) {};
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {};
+}
+
+
+message ConfigEntry {
+  string namespace = 1;
+  string name = 2;
+  bytes data = 3;
+}
+
+message GetRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message GetResponse {
+  ConfigEntry entry = 1;
+}
+
+message SaveRequest {
+  string namespace = 1;
+  string name = 2;
+  ConfigEntry entry = 3;
+}
+
+message SaveResponse {
+
+}
+
+message HistoryRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message HistoryResponse {
+  repeated ConfigEntry entries = 1;
+}
+
+message DeleteRequest {
+  string namespace = 1;
+  string name = 2;
+}
+
+message DeleteResponse {
+
+}

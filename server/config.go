@@ -1,5 +1,16 @@
 package server
 
+import (
+	"fmt"
+	"net"
+	"time"
+)
+
+const (
+	DefaultBindAddr = "127.0.0.1:9527"
+	DefaultBindPort = 9527
+)
+
 type Config struct {
 	// NodeName is the name we register as. Defaults to hostname.
 	NodeName string `mapstructure:"node-name"`
@@ -28,6 +39,63 @@ type Config struct {
 	// by the other servers and clients.
 	AdvertiseRPCPort int `mapstructure:"advertise-rpc-port"`
 
+	Profile string `mapstructure:"profile"`
+
 	// DataDir is the directory to store our state in
 	DataDir string `mapstructure:"data-dir"`
+
+	ReconnectInterval time.Duration `mapstructure:"reconnect-interval"`
+	ReconnectTimeout  time.Duration `mapstructure:"reconnect-timeout"`
+	ReconcileInterval time.Duration
+
+	RaftMultiplier int `mapstructure:"raft-multiplier"`
+}
+
+func (c *Config) AddrParts(address string) (string, int, error) {
+	checkAddr := address
+
+START:
+	_, _, err := net.SplitHostPort(checkAddr)
+	if ae, ok := err.(*net.AddrError); ok && ae.Err == "missing port in address" {
+		checkAddr = fmt.Sprintf("%s:%d", checkAddr, DefaultBindPort)
+		goto START
+	}
+	if err != nil {
+		return "", 0, err
+	}
+
+	// Get the address
+	addr, err := net.ResolveTCPAddr("tcp", checkAddr)
+	if err != nil {
+		return "", 0, err
+	}
+
+	return addr.IP.String(), addr.Port, nil
+}
+
+func populateConfig(config *Config) *Config {
+	if config == nil {
+		config = &Config{}
+	}
+
+	if config.NodeName == "" {
+
+	}
+
+	if config.BindAddr == "" {
+
+	}
+
+	if config.HTTPAddr == "" {
+
+	}
+
+	if config.AdvertiseAddr == "" {
+
+	}
+
+	if config.DataDir == "" {
+
+	}
+	return config
 }
