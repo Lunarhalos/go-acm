@@ -45,15 +45,6 @@ type Config struct {
 
 	RaftMultiplier int `mapstructure:"raft-multiplier"`
 
-	// Bootstrap mode is used to bring up the first acm server.  It is
-	// required so that it can elect a leader without any other nodes
-	// being present
-	Bootstrap bool
-
-	// BootstrapExpect tries to automatically bootstrap the acm cluster,
-	// by withholding peers until enough servers join.
-	BootstrapExpect int `mapstructure:"bootstrap-expect"`
-
 	LogLevel string `mapstructure:"log-level"`
 }
 
@@ -69,7 +60,6 @@ func DefaultConfig() *Config {
 		ReconcileInterval:   60 * time.Second,
 		ReconnectTimeout:    24 * time.Hour,
 		RaftMultiplier:      1,
-		BootstrapExpect:     1,
 	}
 }
 

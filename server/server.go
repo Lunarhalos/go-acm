@@ -38,9 +38,10 @@ type ACMServer struct {
 func New(config *Config) *ACMServer {
 	config = populateConfig(config)
 	s := &ACMServer{
-		nodes:  make(map[string]*node),
-		config: config,
-		logger: InitLogger(config.LogLevel, config.NodeName),
+		nodes:       make(map[string]*node),
+		config:      config,
+		logger:      InitLogger(config.LogLevel, config.NodeName),
+		reconcileCh: make(chan serf.Member),
 	}
 
 	return s
@@ -61,8 +62,10 @@ func (s *ACMServer) Start() error {
 		return err
 	}
 
-	// start join
-	s.join(s.config.StartJoin, true)
+	if len(s.config.StartJoin) > 0 {
+		// start join
+		s.join(s.config.StartJoin, true)
+	}
 
 	l, err := net.Listen("tcp", s.config.ListenClientUrls)
 	if err != nil {
@@ -73,13 +76,19 @@ func (s *ACMServer) Start() error {
 		s.logger.WithError(err).Fatal("server failed to start")
 	}
 
+	go s.monitorLeadership()
+
 	return nil
 }
 
 func (s *ACMServer) Stop() error {
 	s.logger.Info("agent: Called member stop, now stopping")
 
-	s.raft.Shutdown()
+	if s.raft.State() == raft.Leader {
+		s.raft.RemoveServer(raft.ServerID(s.config.NodeName), 0, 0)
+	}
+
+	s.store.Shutdown()
 
 	if err := s.serf.Leave(); err != nil {
 		return err

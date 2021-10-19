@@ -16,6 +16,7 @@ type Storage interface {
 	History(namespace, name string) ([]*ConfigEntry, error)
 	Snapshot(w io.WriteCloser) error
 	Restore(r io.ReadCloser) error
+	Shutdown() error
 }
 
 type Store struct {
@@ -184,4 +185,9 @@ func (s *Store) Snapshot(w io.WriteCloser) error {
 }
 func (s *Store) Restore(r io.ReadCloser) error {
 	return s.db.Load(r, 10)
+}
+
+// Shutdown close the KV store
+func (s *Store) Shutdown() error {
+	return s.db.Close()
 }

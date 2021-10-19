@@ -40,7 +40,7 @@ func NewGRPCTransport(localAddress raft.ServerAddress, dialOptions ...grpc.DialO
 		heartbeatFn:     nil,
 		heartbeatFnLock: sync.Mutex{},
 		clientsLock:     sync.Mutex{},
-		clients:         nil,
+		clients:         make(map[raft.ServerAddress]*client),
 	}
 	return t
 }

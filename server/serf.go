@@ -103,6 +103,7 @@ func (s *ACMServer) setupSerf() (err error) {
 }
 
 func (s *ACMServer) handleMemberEvent(me serf.MemberEvent) {
+	s.logger.Info(s.raft.State())
 	// Do nothing if we are not the leader
 	if s.raft.State() != raft.Leader {
 		return
@@ -113,6 +114,7 @@ func (s *ACMServer) handleMemberEvent(me serf.MemberEvent) {
 
 	// Queue the members for reconciliation
 	for _, m := range me.Members {
+		s.logger.Info(m.Status)
 		// Change the status if this is a reap event
 		if isReap {
 			m.Status = StatusReap

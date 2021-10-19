@@ -3,7 +3,7 @@ VERSION=$(shell git describe --tags --always)
 API_PROTO_FILES=$(shell find api -name *.proto)
 
 .PHONY: proto
-# generate internal proto
+# generate proto
 proto:
 	protoc --proto_path=. \
  		--go_out=paths=source_relative:. \

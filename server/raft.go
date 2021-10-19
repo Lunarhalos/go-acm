@@ -14,6 +14,7 @@ import (
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"github.com/hashicorp/serf/serf"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 const (
@@ -45,16 +46,12 @@ func parseNode(member serf.Member) *node {
 }
 
 func (s *ACMServer) setupRaft() error {
-	if s.config.BootstrapExpect == 1 {
-		s.config.Bootstrap = true
-	}
-
 	logger := ioutil.Discard
 	if s.logger.Logger.Level == logrus.DebugLevel {
 		logger = s.logger.Logger.Writer()
 	}
 
-	s.raftTransport = transport.NewGRPCTransport(raft.ServerAddress(s.config.AdvertiseClientUrls))
+	s.raftTransport = transport.NewGRPCTransport(raft.ServerAddress(s.config.AdvertiseClientUrls), grpc.WithInsecure())
 
 	raftConfig := raft.DefaultConfig()
 	// Raft performance
@@ -120,9 +117,9 @@ func (s *ACMServer) setupRaft() error {
 		s.logger.Info("deleted peers.json file after successful recovery")
 	}
 
-	// If we are in bootstrap or dev mode and the state is clean then we can
-	// bootstrap now.
-	if s.config.BootstrapExpect == 1 {
+	if len(s.config.StartJoin) == 0 {
+		// If we are in bootstrap or dev mode and the state is clean then we can
+		// bootstrap now.
 		hasState, err := raft.HasExistingState(logStore, stableStore, snapshots)
 		if err != nil {
 			return err
@@ -230,6 +227,7 @@ RECONCILE:
 WAIT:
 	// Wait until leadership is lost
 	for {
+		s.logger.Info("read reconcileCh")
 		select {
 		case <-stopCh:
 			return
@@ -259,7 +257,7 @@ func (s *ACMServer) reconcile() error {
 func (s *ACMServer) reconcileMember(member serf.Member) error {
 	// Check if this is a member we should handle
 	node := parseNode(member)
-
+	s.logger.Info(member.Status)
 	var err error
 	switch member.Status {
 	case serf.StatusAlive:
@@ -275,6 +273,7 @@ func (s *ACMServer) reconcileMember(member serf.Member) error {
 }
 
 func (s *ACMServer) addRaftNode(node *node) error {
+	s.logger.Infof("acm: add raft node %s, %s", node.id, node.addr.String())
 	cfg := s.raft.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return err
@@ -291,6 +290,7 @@ func (s *ACMServer) addRaftNode(node *node) error {
 }
 
 func (s *ACMServer) removeRaftNode(node *node) error {
+	s.logger.Infof("acm: remove raft node %s, %s", node.id, node.addr.String())
 	cfg := s.raft.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return err
