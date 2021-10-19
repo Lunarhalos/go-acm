@@ -18,23 +18,25 @@ const (
 )
 
 // setupServer is used to create the agent we use
-func (s *Server) setupSerf() error {
-	bindIP, bindPort, err := s.config.AddrParts(s.config.BindAddr)
+func (s *ACMServer) setupSerf() (err error) {
+	var (
+		bindIP        string
+		bindPort      int
+		advertiseIP   string
+		advertisePort int
+	)
+	// Get the address
+
+	bindIP, bindPort, err = addrParts(s.config.ListenPeerUrls)
 	if err != nil {
 		s.logger.Errorf(fmt.Sprintf("invalid bind address: %s", err))
 		return err
 	}
 
-	var (
-		advertiseIP   string
-		advertisePort int
-	)
-	if s.config.AdvertiseAddr != "" {
-		advertiseIP, advertisePort, err = s.config.AddrParts(s.config.AdvertiseAddr)
-		if err != nil {
-			s.logger.Errorf(fmt.Sprintf("invalid advertise address: %s", err))
-			return err
-		}
+	advertiseIP, advertisePort, err = addrParts(s.config.AdvertisePeerUrls)
+	if err != nil {
+		s.logger.Errorf(fmt.Sprintf("invalid advertise address: %s", err))
+		return err
 	}
 
 	serfConfig := serf.DefaultConfig()
@@ -55,12 +57,13 @@ func (s *Server) setupSerf() error {
 	serfConfig.MemberlistConfig.AdvertiseAddr = advertiseIP
 	serfConfig.MemberlistConfig.AdvertisePort = advertisePort
 	serfConfig.NodeName = s.config.NodeName
-	serfConfig.Tags = s.config.Tags
+	tags := make(map[string]string)
+	tags[TagRPCAddr] = s.config.AdvertiseClientUrls
+	serfConfig.Tags = tags
 	serfConfig.CoalescePeriod = 3 * time.Second
 	serfConfig.QuiescentPeriod = time.Second
 	serfConfig.UserCoalescePeriod = 3 * time.Second
 	serfConfig.UserQuiescentPeriod = time.Second
-	serfConfig.ReconnectInterval = s.config.ReconnectInterval
 	serfConfig.ReconnectTimeout = s.config.ReconnectTimeout
 
 	serfEventCh := make(chan serf.Event, 2048)
@@ -75,22 +78,22 @@ func (s *Server) setupSerf() error {
 	}
 
 	// Create serf first
-	sf, err := serf.Create(serfConfig)
+	s.serf, err = serf.Create(serfConfig)
 	if err != nil {
 		s.logger.Error(err)
 		return err
 	}
-	s.serf = sf
 
 	// 监听serf事件
 	go func() {
 		for {
 			select {
 			case e := <-serfEventCh:
+				s.logger.Infof("acm: received event: %s", e.String())
 				if me, ok := e.(serf.MemberEvent); ok {
 					s.handleMemberEvent(me)
 				}
-			case <-sf.ShutdownCh():
+			case <-s.serf.ShutdownCh():
 				s.logger.Warn("agent: Serf shutdown detected, quitting")
 				return
 			}
@@ -99,7 +102,7 @@ func (s *Server) setupSerf() error {
 	return nil
 }
 
-func (s *Server) handleMemberEvent(me serf.MemberEvent) {
+func (s *ACMServer) handleMemberEvent(me serf.MemberEvent) {
 	// Do nothing if we are not the leader
 	if s.raft.State() != raft.Leader {
 		return
@@ -121,16 +124,29 @@ func (s *Server) handleMemberEvent(me serf.MemberEvent) {
 	}
 }
 
-func (s *Server) addNode(node *node) error {
+func (s *ACMServer) addNode(node *node) error {
 	s.nodeLock.Lock()
 	s.nodes[node.addr.String()] = node
 	s.nodeLock.Unlock()
 	return s.addRaftNode(node)
 }
 
-func (s *Server) removeNode(node *node) error {
+func (s *ACMServer) removeNode(node *node) error {
 	s.nodeLock.Lock()
 	delete(s.nodes, node.addr.String())
 	s.nodeLock.Unlock()
 	return s.removeNode(node)
+}
+
+// Join asks the Serf instance to join. See the Serf.Join function.
+func (s *ACMServer) join(addrs []string, replay bool) (n int, err error) {
+	s.logger.Infof("agent: joining: %v replay: %v", addrs, replay)
+	n, err = s.serf.Join(addrs, !replay)
+	if n > 0 {
+		s.logger.Infof("acm: joined: %d nodes", n)
+	}
+	if err != nil {
+		s.logger.Warnf("acm: error joining: %v", err)
+	}
+	return
 }

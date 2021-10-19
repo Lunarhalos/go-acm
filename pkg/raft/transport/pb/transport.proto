@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package acmserverpb;
 
-option go_package = "github.com/Lunarhalos/go-acm/raftpb;raftpb";
+option go_package = "github.com/Lunarhalos/go-acm/pb;pb";
 
 import "google/protobuf/timestamp.proto";
 

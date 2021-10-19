@@ -1,11 +1,11 @@
 package transport
 
 import (
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport/raftpb"
+	"github.com/Lunarhalos/go-acm/pkg/raft/transport/pb"
 	"github.com/hashicorp/raft"
 )
 
-func decodeAppendEntriesRequest(m *raftpb.AppendEntriesRequest) *raft.AppendEntriesRequest {
+func decodeAppendEntriesRequest(m *pb.AppendEntriesRequest) *raft.AppendEntriesRequest {
 	return &raft.AppendEntriesRequest{
 		RPCHeader:         decodeRPCHeader(m.RpcHeader),
 		Term:              m.Term,
@@ -17,13 +17,13 @@ func decodeAppendEntriesRequest(m *raftpb.AppendEntriesRequest) *raft.AppendEntr
 	}
 }
 
-func decodeRPCHeader(m *raftpb.RPCHeader) raft.RPCHeader {
+func decodeRPCHeader(m *pb.RPCHeader) raft.RPCHeader {
 	return raft.RPCHeader{
 		ProtocolVersion: raft.ProtocolVersion(m.ProtocolVersion),
 	}
 }
 
-func decodeLogs(m []*raftpb.Log) []*raft.Log {
+func decodeLogs(m []*pb.Log) []*raft.Log {
 	ret := make([]*raft.Log, len(m))
 	for i, l := range m {
 		ret[i] = decodeLog(l)
@@ -31,7 +31,7 @@ func decodeLogs(m []*raftpb.Log) []*raft.Log {
 	return ret
 }
 
-func decodeLog(m *raftpb.Log) *raft.Log {
+func decodeLog(m *pb.Log) *raft.Log {
 	return &raft.Log{
 		Index:      m.Index,
 		Term:       m.Term,
@@ -42,26 +42,26 @@ func decodeLog(m *raftpb.Log) *raft.Log {
 	}
 }
 
-func decodeLogType(m raftpb.LogType) raft.LogType {
+func decodeLogType(m pb.LogType) raft.LogType {
 	switch m {
-	case raftpb.LogType_LogCommand:
+	case pb.LogType_LogCommand:
 		return raft.LogCommand
-	case raftpb.LogType_LogNoop:
+	case pb.LogType_LogNoop:
 		return raft.LogNoop
-	case raftpb.LogType_LogAddPeerDeprecated:
+	case pb.LogType_LogAddPeerDeprecated:
 		return raft.LogAddPeerDeprecated
-	case raftpb.LogType_LogRemovePeerDeprecated:
+	case pb.LogType_LogRemovePeerDeprecated:
 		return raft.LogRemovePeerDeprecated
-	case raftpb.LogType_LogBarrier:
+	case pb.LogType_LogBarrier:
 		return raft.LogBarrier
-	case raftpb.LogType_LogConfiguration:
+	case pb.LogType_LogConfiguration:
 		return raft.LogConfiguration
 	default:
 		panic("invalid LogType")
 	}
 }
 
-func decodeAppendEntriesResponse(m *raftpb.AppendEntriesResponse) *raft.AppendEntriesResponse {
+func decodeAppendEntriesResponse(m *pb.AppendEntriesResponse) *raft.AppendEntriesResponse {
 	return &raft.AppendEntriesResponse{
 		RPCHeader:      decodeRPCHeader(m.RpcHeader),
 		Term:           m.Term,
@@ -71,7 +71,7 @@ func decodeAppendEntriesResponse(m *raftpb.AppendEntriesResponse) *raft.AppendEn
 	}
 }
 
-func decodeRequestVoteRequest(m *raftpb.RequestVoteRequest) *raft.RequestVoteRequest {
+func decodeRequestVoteRequest(m *pb.RequestVoteRequest) *raft.RequestVoteRequest {
 	return &raft.RequestVoteRequest{
 		RPCHeader:          decodeRPCHeader(m.RpcHeader),
 		Term:               m.Term,
@@ -82,7 +82,7 @@ func decodeRequestVoteRequest(m *raftpb.RequestVoteRequest) *raft.RequestVoteReq
 	}
 }
 
-func decodeRequestVoteResponse(m *raftpb.RequestVoteResponse) *raft.RequestVoteResponse {
+func decodeRequestVoteResponse(m *pb.RequestVoteResponse) *raft.RequestVoteResponse {
 	return &raft.RequestVoteResponse{
 		RPCHeader: decodeRPCHeader(m.RpcHeader),
 		Term:      m.Term,
@@ -91,7 +91,7 @@ func decodeRequestVoteResponse(m *raftpb.RequestVoteResponse) *raft.RequestVoteR
 	}
 }
 
-func decodeInstallSnapshotRequest(m *raftpb.InstallSnapshotRequest) *raft.InstallSnapshotRequest {
+func decodeInstallSnapshotRequest(m *pb.InstallSnapshotRequest) *raft.InstallSnapshotRequest {
 	return &raft.InstallSnapshotRequest{
 		RPCHeader:          decodeRPCHeader(m.RpcHeader),
 		SnapshotVersion:    raft.SnapshotVersion(m.SnapshotVersion),
@@ -106,7 +106,7 @@ func decodeInstallSnapshotRequest(m *raftpb.InstallSnapshotRequest) *raft.Instal
 	}
 }
 
-func decodeInstallSnapshotResponse(m *raftpb.InstallSnapshotResponse) *raft.InstallSnapshotResponse {
+func decodeInstallSnapshotResponse(m *pb.InstallSnapshotResponse) *raft.InstallSnapshotResponse {
 	return &raft.InstallSnapshotResponse{
 		RPCHeader: decodeRPCHeader(m.RpcHeader),
 		Term:      m.Term,
@@ -114,13 +114,13 @@ func decodeInstallSnapshotResponse(m *raftpb.InstallSnapshotResponse) *raft.Inst
 	}
 }
 
-func decodeTimeoutNowRequest(m *raftpb.TimeoutNowRequest) *raft.TimeoutNowRequest {
+func decodeTimeoutNowRequest(m *pb.TimeoutNowRequest) *raft.TimeoutNowRequest {
 	return &raft.TimeoutNowRequest{
 		RPCHeader: decodeRPCHeader(m.RpcHeader),
 	}
 }
 
-func decodeTimeoutNowResponse(m *raftpb.TimeoutNowResponse) *raft.TimeoutNowResponse {
+func decodeTimeoutNowResponse(m *pb.TimeoutNowResponse) *raft.TimeoutNowResponse {
 	return &raft.TimeoutNowResponse{
 		RPCHeader: decodeRPCHeader(m.RpcHeader),
 	}

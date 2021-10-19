@@ -14,7 +14,7 @@ import (
 	"github.com/hashicorp/serf/serf"
 )
 
-type Server struct {
+type ACMServer struct {
 	storage Storage
 
 	serf        *serf.Serf
@@ -35,16 +35,24 @@ type Server struct {
 	acmserverpb.UnimplementedACMServer
 }
 
-func New(config *Config) *Server {
+func New(config *Config) *ACMServer {
 	config = populateConfig(config)
-	s := &Server{
+	s := &ACMServer{
 		nodes:  make(map[string]*node),
 		config: config,
+		logger: InitLogger(config.LogLevel, config.NodeName),
 	}
+
 	return s
 }
 
-func (s *Server) Run() error {
+func (s *ACMServer) Start() error {
+	store, err := NewStore(s.logger)
+	if err != nil {
+		return err
+	}
+	s.store = store
+
 	if err := s.setupSerf(); err != nil {
 		return err
 	}
@@ -53,8 +61,10 @@ func (s *Server) Run() error {
 		return err
 	}
 
-	addr := s.bindRPCAddr()
-	l, err := net.Listen("tcp", addr)
+	// start join
+	s.join(s.config.StartJoin, true)
+
+	l, err := net.Listen("tcp", s.config.ListenClientUrls)
 	if err != nil {
 		s.logger.Fatal(err)
 	}
@@ -66,7 +76,23 @@ func (s *Server) Run() error {
 	return nil
 }
 
-func (s *Server) Get(ctx context.Context, request *acmserverpb.GetRequest) (*acmserverpb.GetResponse, error) {
+func (s *ACMServer) Stop() error {
+	s.logger.Info("agent: Called member stop, now stopping")
+
+	s.raft.Shutdown()
+
+	if err := s.serf.Leave(); err != nil {
+		return err
+	}
+
+	if err := s.serf.Shutdown(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *ACMServer) Get(ctx context.Context, request *acmserverpb.GetRequest) (*acmserverpb.GetResponse, error) {
 	e, err := s.store.Get(request.Namespace, request.Name)
 	if err != nil {
 		return nil, err
@@ -75,13 +101,13 @@ func (s *Server) Get(ctx context.Context, request *acmserverpb.GetRequest) (*acm
 		Entry: &acmserverpb.ConfigEntry{
 			Namespace: e.Namespace,
 			Name:      e.Name,
-			Data:      e.Data,
+			Data:      string(e.Data),
 		},
 	}
 	return response, nil
 }
 
-func (s *Server) Save(ctx context.Context, request *acmserverpb.SaveRequest) (*acmserverpb.SaveResponse, error) {
+func (s *ACMServer) Save(ctx context.Context, request *acmserverpb.SaveRequest) (*acmserverpb.SaveResponse, error) {
 	cmd, err := Encode(MessageTypeSave, request.Entry)
 	if err != nil {
 		return nil, err
@@ -91,8 +117,6 @@ func (s *Server) Save(ctx context.Context, request *acmserverpb.SaveRequest) (*a
 		return nil, err
 	}
 
-	s.raft.Leader()
-
 	switch v := af.Response().(type) {
 	case error:
 		return nil, v
@@ -100,7 +124,7 @@ func (s *Server) Save(ctx context.Context, request *acmserverpb.SaveRequest) (*a
 	return &acmserverpb.SaveResponse{}, nil
 }
 
-func (s *Server) History(ctx context.Context, request *acmserverpb.HistoryRequest) (*acmserverpb.HistoryResponse, error) {
+func (s *ACMServer) History(ctx context.Context, request *acmserverpb.HistoryRequest) (*acmserverpb.HistoryResponse, error) {
 	es, err := s.store.History(request.Namespace, request.Name)
 	if err != nil {
 		return nil, err
@@ -110,14 +134,14 @@ func (s *Server) History(ctx context.Context, request *acmserverpb.HistoryReques
 		response.Entries = append(response.Entries, &acmserverpb.ConfigEntry{
 			Namespace: e.Namespace,
 			Name:      e.Name,
-			Data:      e.Data,
+			Data:      string(e.Data),
 		})
 	}
 	return response, nil
 }
 
-func (s *Server) Delete(ctx context.Context, request *acmserverpb.DeleteRequest) (*acmserverpb.DeleteResponse, error) {
-	cmd, err := Encode(MessageTypeSave, request)
+func (s *ACMServer) Delete(ctx context.Context, request *acmserverpb.DeleteRequest) (*acmserverpb.DeleteResponse, error) {
+	cmd, err := Encode(MessageTypeDelete, request)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +157,7 @@ func (s *Server) Delete(ctx context.Context, request *acmserverpb.DeleteRequest)
 	return &acmserverpb.DeleteResponse{}, nil
 }
 
-func (s *Server) Serve(lis net.Listener) error {
+func (s *ACMServer) Serve(lis net.Listener) error {
 	grpcServer := grpc.NewServer()
 	acmserverpb.RegisterACMServer(grpcServer, s)
 	s.raftTransport.Register(grpcServer)

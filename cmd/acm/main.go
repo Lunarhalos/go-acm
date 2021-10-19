@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/Lunarhalos/go-acm/server"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -35,8 +36,12 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.AddCommand(AgentCommand)
-	rootCmd.AddCommand(ServerCommand)
+
+	rootCmd.AddCommand(agentCommand)
+
+	rootCmd.AddCommand(serverCommand)
+	serverCommand.Flags().AddFlagSet(server.ConfigFlagSet())
+	viper.BindPFlags(serverCommand.Flags())
 }
 
 func main() {
@@ -49,14 +54,10 @@ func initConfig() {
 		// Use config file from the flag.
 		viper.SetConfigFile(cfgFile)
 	} else {
-		// Find home directory.
-		home, err := os.UserHomeDir()
-		cobra.CheckErr(err)
-
-		// Search config in home directory with name ".go-acm" (without extension).
-		viper.AddConfigPath(home)
-		viper.SetConfigType("yaml")
-		viper.SetConfigName(".go-acm")
+		viper.SetConfigName("acm")        // name of config file (without extension)
+		viper.AddConfigPath("/etc/acm")   // call multiple times to add many search paths
+		viper.AddConfigPath("$HOME/.acm") // call multiple times to add many search paths
+		viper.AddConfigPath("./config")   // call multiple times to add many search paths
 	}
 
 	viper.AutomaticEnv() // read in environment variables that match

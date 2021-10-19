@@ -4,13 +4,13 @@ import (
 	"context"
 	"io"
 
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport/raftpb"
+	"github.com/Lunarhalos/go-acm/pkg/raft/transport/pb"
 	"github.com/hashicorp/raft"
 )
 
 type raftAPI struct {
 	t *gRPCTransport
-	raftpb.UnimplementedRaftServer
+	pb.UnimplementedRaftServer
 }
 
 func (r raftAPI) handleRPC(command interface{}, data io.Reader) (interface{}, error) {
@@ -38,7 +38,7 @@ wait:
 	return resp.Response, nil
 }
 
-func (r raftAPI) AppendEntries(ctx context.Context, req *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesResponse, error) {
+func (r raftAPI) AppendEntries(ctx context.Context, req *pb.AppendEntriesRequest) (*pb.AppendEntriesResponse, error) {
 	resp, err := r.handleRPC(decodeAppendEntriesRequest(req), nil)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (r raftAPI) AppendEntries(ctx context.Context, req *raftpb.AppendEntriesReq
 	return encodeAppendEntriesResponse(resp.(*raft.AppendEntriesResponse)), nil
 }
 
-func (r raftAPI) RequestVote(ctx context.Context, req *raftpb.RequestVoteRequest) (*raftpb.RequestVoteResponse, error) {
+func (r raftAPI) RequestVote(ctx context.Context, req *pb.RequestVoteRequest) (*pb.RequestVoteResponse, error) {
 	resp, err := r.handleRPC(decodeRequestVoteRequest(req), nil)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (r raftAPI) RequestVote(ctx context.Context, req *raftpb.RequestVoteRequest
 	return encodeRequestVoteResponse(resp.(*raft.RequestVoteResponse)), nil
 }
 
-func (r raftAPI) TimeoutNow(ctx context.Context, req *raftpb.TimeoutNowRequest) (*raftpb.TimeoutNowResponse, error) {
+func (r raftAPI) TimeoutNow(ctx context.Context, req *pb.TimeoutNowRequest) (*pb.TimeoutNowResponse, error) {
 	resp, err := r.handleRPC(decodeTimeoutNowRequest(req), nil)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (r raftAPI) TimeoutNow(ctx context.Context, req *raftpb.TimeoutNowRequest) 
 	return encodeTimeoutNowResponse(resp.(*raft.TimeoutNowResponse)), nil
 }
 
-func (r raftAPI) InstallSnapshot(s raftpb.Raft_InstallSnapshotServer) error {
+func (r raftAPI) InstallSnapshot(s pb.Raft_InstallSnapshotServer) error {
 	isr, err := s.Recv()
 	if err != nil {
 		return err
@@ -75,7 +75,7 @@ func (r raftAPI) InstallSnapshot(s raftpb.Raft_InstallSnapshotServer) error {
 }
 
 type snapshotStream struct {
-	s raftpb.Raft_InstallSnapshotServer
+	s pb.Raft_InstallSnapshotServer
 
 	buf []byte
 }
@@ -97,7 +97,7 @@ func (s *snapshotStream) Read(b []byte) (int, error) {
 	return n, nil
 }
 
-func (r raftAPI) AppendEntriesPipeline(s raftpb.Raft_AppendEntriesPipelineServer) error {
+func (r raftAPI) AppendEntriesPipeline(s pb.Raft_AppendEntriesPipelineServer) error {
 	for {
 		msg, err := s.Recv()
 		if err != nil {

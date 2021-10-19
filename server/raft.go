@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"sync"
 	"time"
 
@@ -41,19 +40,21 @@ func parseNode(member serf.Member) *node {
 		addr:   &net.TCPAddr{IP: member.Addr, Port: int(member.Port)},
 		Status: member.Status,
 	}
-	rpcAddr := net.ParseIP(member.Tags[TagRPCAddr])
-	rpcPort, _ := strconv.Atoi(member.Tags[TagRPCPort])
-	node.rpcAddr = &net.TCPAddr{IP: rpcAddr, Port: rpcPort}
+	node.rpcAddr, _ = net.ResolveTCPAddr("tcp", member.Tags[TagRPCAddr])
 	return node
 }
 
-func (s *Server) setupRaft() error {
+func (s *ACMServer) setupRaft() error {
+	if s.config.BootstrapExpect == 1 {
+		s.config.Bootstrap = true
+	}
+
 	logger := ioutil.Discard
 	if s.logger.Logger.Level == logrus.DebugLevel {
 		logger = s.logger.Logger.Writer()
 	}
 
-	s.raftTransport = transport.NewGRPCTransport(raft.ServerAddress(s.config.BindAddr))
+	s.raftTransport = transport.NewGRPCTransport(raft.ServerAddress(s.config.AdvertiseClientUrls))
 
 	raftConfig := raft.DefaultConfig()
 	// Raft performance
@@ -119,6 +120,28 @@ func (s *Server) setupRaft() error {
 		s.logger.Info("deleted peers.json file after successful recovery")
 	}
 
+	// If we are in bootstrap or dev mode and the state is clean then we can
+	// bootstrap now.
+	if s.config.BootstrapExpect == 1 {
+		hasState, err := raft.HasExistingState(logStore, stableStore, snapshots)
+		if err != nil {
+			return err
+		}
+		if !hasState {
+			configuration := raft.Configuration{
+				Servers: []raft.Server{
+					{
+						ID:      raftConfig.LocalID,
+						Address: s.raftTransport.LocalAddr(),
+					},
+				},
+			}
+			if err := raft.BootstrapCluster(raftConfig, logStore, stableStore, snapshots, s.raftTransport, configuration); err != nil {
+				return err
+			}
+		}
+	}
+
 	fsm := newFSM(s.store, s.logger)
 	rft, err := raft.NewRaft(raftConfig, fsm, logStore, stableStore, snapshots, s.raftTransport)
 	if err != nil {
@@ -128,7 +151,7 @@ func (s *Server) setupRaft() error {
 	return nil
 }
 
-func (s *Server) monitorLeadership() {
+func (s *ACMServer) monitorLeadership() {
 	var weAreLeaderCh chan struct{}
 	var leaderLoop sync.WaitGroup
 	for {
@@ -171,7 +194,7 @@ func (s *Server) monitorLeadership() {
 
 // leaderLoop runs as long as we are the leader to run various
 // maintenance activities
-func (s *Server) leaderLoop(stopCh chan struct{}) {
+func (s *ACMServer) leaderLoop(stopCh chan struct{}) {
 	var reconcileCh chan serf.Member
 RECONCILE:
 	// Setup a reconciliation timer
@@ -222,7 +245,7 @@ WAIT:
 
 // reconcile is used to reconcile the differences between Serf
 // membership and what is reflected in our strongly consistent store.
-func (s *Server) reconcile() error {
+func (s *ACMServer) reconcile() error {
 	members := s.serf.Members()
 	for _, member := range members {
 		if err := s.reconcileMember(member); err != nil {
@@ -233,7 +256,7 @@ func (s *Server) reconcile() error {
 }
 
 // reconcileMember is used to do an async reconcile of a single serf member
-func (s *Server) reconcileMember(member serf.Member) error {
+func (s *ACMServer) reconcileMember(member serf.Member) error {
 	// Check if this is a member we should handle
 	node := parseNode(member)
 
@@ -251,7 +274,7 @@ func (s *Server) reconcileMember(member serf.Member) error {
 	return nil
 }
 
-func (s *Server) addRaftNode(node *node) error {
+func (s *ACMServer) addRaftNode(node *node) error {
 	cfg := s.raft.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return err
@@ -267,7 +290,7 @@ func (s *Server) addRaftNode(node *node) error {
 	return nil
 }
 
-func (s *Server) removeRaftNode(node *node) error {
+func (s *ACMServer) removeRaftNode(node *node) error {
 	cfg := s.raft.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return err

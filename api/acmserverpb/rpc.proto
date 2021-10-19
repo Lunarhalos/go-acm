@@ -16,7 +16,7 @@ service ACM {
 message ConfigEntry {
   string namespace = 1;
   string name = 2;
-  bytes data = 3;
+  string data = 3;
 }
 
 message GetRequest {

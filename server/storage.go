@@ -57,8 +57,10 @@ func (s *Store) Save(entry *ConfigEntry) error {
 		)
 
 		// 查询历史配置
-		if item, err := txn.Get([]byte(historyKey)); err != nil && err != badger.ErrNoRewrite {
-			return err
+		if item, err := txn.Get([]byte(historyKey)); err != nil {
+			if err != badger.ErrKeyNotFound {
+				return err
+			}
 		} else {
 			if err := item.Value(func(val []byte) error {
 				if err := json.Unmarshal(val, &historyEntries); err != nil {
@@ -71,8 +73,10 @@ func (s *Store) Save(entry *ConfigEntry) error {
 		}
 
 		// 查询当前配置
-		if item, err := txn.Get([]byte(latestKey)); err != nil && err != badger.ErrNoRewrite {
-			return err
+		if item, err := txn.Get([]byte(latestKey)); err != nil {
+			if err != badger.ErrKeyNotFound {
+				return err
+			}
 		} else {
 			if err := item.Value(func(val []byte) error {
 				// 把当前配置加入到历史记录

@@ -65,7 +65,7 @@ func (fsm *acmFSM) applySaveEntry(buf []byte) interface{} {
 	e := &ConfigEntry{
 		Namespace: pe.Namespace,
 		Name:      pe.Name,
-		Data:      pe.Data,
+		Data:      []byte(pe.Data),
 	}
 	if err := fsm.store.Save(e); err != nil {
 		return err

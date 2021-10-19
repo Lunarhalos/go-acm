@@ -205,5 +205,5 @@ var ACM_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "rpc.proto",
+	Metadata: "api/acmserverpb/rpc.proto",
 }

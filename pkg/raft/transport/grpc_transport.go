@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport/raftpb"
+	"github.com/Lunarhalos/go-acm/pkg/raft/transport/pb"
 	"github.com/hashicorp/raft"
 	"google.golang.org/grpc"
 )
@@ -27,7 +27,7 @@ type gRPCTransport struct {
 }
 
 type client struct {
-	c    raftpb.RaftClient
+	c    pb.RaftClient
 	lock sync.Mutex
 }
 
@@ -55,7 +55,7 @@ func (t *gRPCTransport) LocalAddr() raft.ServerAddress {
 	return t.localAddress
 }
 
-func (t *gRPCTransport) getClient(target raft.ServerAddress) (raftpb.RaftClient, error) {
+func (t *gRPCTransport) getClient(target raft.ServerAddress) (pb.RaftClient, error) {
 	t.clientsLock.Lock()
 	c, ok := t.clients[target]
 	if !ok {
@@ -73,13 +73,13 @@ func (t *gRPCTransport) getClient(target raft.ServerAddress) (raftpb.RaftClient,
 		if err != nil {
 			return nil, err
 		}
-		c.c = raftpb.NewRaftClient(conn)
+		c.c = pb.NewRaftClient(conn)
 	}
 	return c.c, nil
 }
 
 type appendPipeline struct {
-	stream         raftpb.Raft_AppendEntriesPipelineClient
+	stream         pb.Raft_AppendEntriesPipelineClient
 	cancel         func()
 	inflightChLock sync.Mutex
 	inflightCh     chan *appendFuture
@@ -87,7 +87,7 @@ type appendPipeline struct {
 	shutdown       bool
 }
 
-func newAppendPipeline(client raftpb.RaftClient) *appendPipeline {
+func newAppendPipeline(client pb.RaftClient) *appendPipeline {
 	ctx := context.TODO()
 	ctx, cancel := context.WithCancel(ctx)
 	stream, err := client.AppendEntriesPipeline(ctx)
@@ -230,7 +230,7 @@ func (t *gRPCTransport) InstallSnapshot(id raft.ServerID, target raft.ServerAddr
 		if err != nil {
 			return err
 		}
-		if err := stream.Send(&raftpb.InstallSnapshotRequest{
+		if err := stream.Send(&pb.InstallSnapshotRequest{
 			Data: buf[:n],
 		}); err != nil {
 			return err
@@ -272,5 +272,5 @@ func (t *gRPCTransport) SetHeartbeatHandler(cb func(rpc raft.RPC)) {
 }
 
 func (t *gRPCTransport) Register(s *grpc.Server) {
-	raftpb.RegisterRaftServer(s, &raftAPI{t: t})
+	pb.RegisterRaftServer(s, &raftAPI{t: t})
 }
