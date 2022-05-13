@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport/pb"
+	"github.com/Lunarhalos/go-acm/pkg/hashicorp-raft/transport/pb"
 	"github.com/hashicorp/raft"
 )
 

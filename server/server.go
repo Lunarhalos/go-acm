@@ -5,13 +5,15 @@ import (
 	"net"
 	"sync"
 
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport"
-	"github.com/sirupsen/logrus"
-	"google.golang.org/grpc"
-
-	"github.com/Lunarhalos/go-acm/api/acmserverpb"
+	pb "github.com/Lunarhalos/go-acm/api/acmserverpb"
+	"github.com/Lunarhalos/go-acm/pkg/filter"
+	"github.com/Lunarhalos/go-acm/pkg/hashicorp-raft/transport"
+	"github.com/go-kratos/kratos/v2/transport/http"
+	"github.com/google/uuid"
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/serf/serf"
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
 )
 
 type ACMServer struct {
@@ -32,7 +34,7 @@ type ACMServer struct {
 
 	shutdownCh chan struct{}
 
-	acmserverpb.UnimplementedACMServer
+	pb.UnimplementedACMServer
 }
 
 func New(config *Config) *ACMServer {
@@ -67,12 +69,11 @@ func (s *ACMServer) Start() error {
 		s.join(s.config.StartJoin, true)
 	}
 
-	l, err := net.Listen("tcp", s.config.ListenClientUrls)
-	if err != nil {
-		s.logger.Fatal(err)
+	if err := s.ServeGRPC(); err != nil {
+		s.logger.WithError(err).Fatal("server failed to start")
 	}
 
-	if err := s.Serve(l); err != nil {
+	if err := s.ServeHTTP(); err != nil {
 		s.logger.WithError(err).Fatal("server failed to start")
 	}
 
@@ -84,12 +85,6 @@ func (s *ACMServer) Start() error {
 func (s *ACMServer) Stop() error {
 	s.logger.Info("agent: Called member stop, now stopping")
 
-	if s.raft.State() == raft.Leader {
-		s.raft.RemoveServer(raft.ServerID(s.config.NodeName), 0, 0)
-	}
-
-	s.store.Shutdown()
-
 	if err := s.serf.Leave(); err != nil {
 		return err
 	}
@@ -98,26 +93,67 @@ func (s *ACMServer) Stop() error {
 		return err
 	}
 
+	future := s.raft.Shutdown()
+	if err := future.Error(); err != nil {
+		return err
+	}
+
+	if err := s.store.Shutdown(); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (s *ACMServer) Get(ctx context.Context, request *acmserverpb.GetRequest) (*acmserverpb.GetResponse, error) {
-	e, err := s.store.Get(request.Namespace, request.Name)
+func (s *ACMServer) CreateNamespace(ctx context.Context, request *pb.CreateNamespaceRequest) (*pb.CreateNamespaceResponse, error) {
+	id, err := uuid.NewUUID()
 	if err != nil {
 		return nil, err
 	}
-	response := &acmserverpb.GetResponse{
-		Entry: &acmserverpb.ConfigEntry{
-			Namespace: e.Namespace,
-			Name:      e.Name,
-			Data:      string(e.Data),
-		},
+	namespace := &pb.Namespace{
+		Name:        request.Name,
+		NamespaceId: id.String(),
+	}
+	cmd, err := Encode(MessageTypeCreateNamespace, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	af := s.raft.Apply(cmd, raftTimeout)
+	if err := af.Error(); err != nil {
+		return nil, err
+	}
+
+	switch v := af.Response().(type) {
+	case error:
+		return nil, v
+	}
+	return &pb.CreateNamespaceResponse{NamespaceId: id.String()}, nil
+}
+func (s *ACMServer) ListNamespaces(context.Context, *pb.ListNamespacesRequest) (*pb.ListNamespacesResponse, error) {
+	namespaces, err := s.store.ListNamespaces()
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListNamespacesResponse{
+		Namespaces: namespaces,
 	}
 	return response, nil
 }
 
-func (s *ACMServer) Save(ctx context.Context, request *acmserverpb.SaveRequest) (*acmserverpb.SaveResponse, error) {
-	cmd, err := Encode(MessageTypeSave, request.Entry)
+func (s *ACMServer) GetNamespace(ctx context.Context, request *pb.GetNamespaceRequest) (*pb.GetNamespaceResponse, error) {
+	namespace, err := s.store.GetNamespace(request.NamespaceId)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.GetNamespaceResponse{
+		Namespace: namespace,
+	}
+	return response, nil
+}
+
+func (s *ACMServer) DeleteNamespace(ctx context.Context, request *pb.DeleteNamespaceRequest) (*pb.DeleteNamespaceResponse, error) {
+	cmd, err := Encode(MessageTypeDeleteNamespace, request)
 	if err != nil {
 		return nil, err
 	}
@@ -130,27 +166,17 @@ func (s *ACMServer) Save(ctx context.Context, request *acmserverpb.SaveRequest) 
 	case error:
 		return nil, v
 	}
-	return &acmserverpb.SaveResponse{}, nil
+	return &pb.DeleteNamespaceResponse{}, nil
 }
 
-func (s *ACMServer) History(ctx context.Context, request *acmserverpb.HistoryRequest) (*acmserverpb.HistoryResponse, error) {
-	es, err := s.store.History(request.Namespace, request.Name)
-	if err != nil {
-		return nil, err
+func (s *ACMServer) CreateConfiguration(ctx context.Context, request *pb.CreateConfigurationRequest) (*pb.CreateConfigurationResponse, error) {
+	configuration := &pb.Configuration{
+		NamespaceId: request.NamespaceId,
+		DataId:      request.DataId,
+		Group:       request.Group,
+		Content:     request.Content,
 	}
-	response := &acmserverpb.HistoryResponse{}
-	for _, e := range es {
-		response.Entries = append(response.Entries, &acmserverpb.ConfigEntry{
-			Namespace: e.Namespace,
-			Name:      e.Name,
-			Data:      string(e.Data),
-		})
-	}
-	return response, nil
-}
-
-func (s *ACMServer) Delete(ctx context.Context, request *acmserverpb.DeleteRequest) (*acmserverpb.DeleteResponse, error) {
-	cmd, err := Encode(MessageTypeDelete, request)
+	cmd, err := Encode(MessageTypeCreateConfiguration, configuration)
 	if err != nil {
 		return nil, err
 	}
@@ -163,13 +189,75 @@ func (s *ACMServer) Delete(ctx context.Context, request *acmserverpb.DeleteReque
 	case error:
 		return nil, v
 	}
-	return &acmserverpb.DeleteResponse{}, nil
+	return &pb.CreateConfigurationResponse{}, nil
 }
 
-func (s *ACMServer) Serve(lis net.Listener) error {
+func (s *ACMServer) ListConfigurations(ctx context.Context, request *pb.ListConfigurationsRequest) (*pb.ListConfigurationsResponse, error) {
+	es, err := s.store.ListConfigurations(request.NamespaceId)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListConfigurationsResponse{
+		Configurations: es,
+	}
+
+	return response, nil
+}
+
+func (s *ACMServer) GetConfiguration(ctx context.Context, request *pb.GetConfigurationRequest) (*pb.GetConfigurationResponse, error) {
+	e, err := s.store.GetConfiguration(request.NamespaceId, request.Group, request.DataId)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.GetConfigurationResponse{
+		Configuration: e,
+	}
+	return response, nil
+}
+
+func (s *ACMServer) ListHistoryConfigurations(ctx context.Context, request *pb.ListHistoryConfigurationsRequest) (*pb.ListHistoryConfigurationsResponse, error) {
+	es, err := s.store.ListHistoryConfigurations(request.NamespaceId, request.Group, request.DataId)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListHistoryConfigurationsResponse{
+		Configurations: es,
+	}
+	return response, nil
+}
+
+func (s *ACMServer) DeleteConfiguration(ctx context.Context, request *pb.DeleteConfigurationRequest) (*pb.DeleteConfigurationResponse, error) {
+	cmd, err := Encode(MessageTypeDeleteConfiguration, request)
+	if err != nil {
+		return nil, err
+	}
+	af := s.raft.Apply(cmd, raftTimeout)
+	if err := af.Error(); err != nil {
+		return nil, err
+	}
+
+	switch v := af.Response().(type) {
+	case error:
+		return nil, v
+	}
+	return &pb.DeleteConfigurationResponse{}, nil
+}
+
+func (s *ACMServer) ServeGRPC() error {
+	lis, err := net.Listen("tcp", s.config.ListenClientUrls)
+	if err != nil {
+		s.logger.Fatal(err)
+	}
 	grpcServer := grpc.NewServer()
-	acmserverpb.RegisterACMServer(grpcServer, s)
+	pb.RegisterACMServer(grpcServer, s)
 	s.raftTransport.Register(grpcServer)
 	go grpcServer.Serve(lis)
+	return nil
+}
+
+func (s *ACMServer) ServeHTTP() error {
+	httpServer := http.NewServer(http.Address(s.config.HTTPAddr), http.Network("tcp"), http.Filter(filter.CORS()))
+	pb.RegisterACMHTTPServer(httpServer, s)
+	go httpServer.Start(context.Background())
 	return nil
 }

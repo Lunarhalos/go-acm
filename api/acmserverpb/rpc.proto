@@ -4,54 +4,174 @@ package acmserverpb;
 
 option go_package = "github.com/Lunarhalos/go-acm/acmserverpb;acmserverpb";
 
+import "google/api/annotations.proto";
 
 service ACM {
-  rpc Get(GetRequest) returns (GetResponse) {};
-  rpc Save(SaveRequest) returns (SaveResponse) {};
-  rpc History(HistoryRequest) returns (HistoryResponse) {};
-  rpc Delete(DeleteRequest) returns (DeleteResponse) {};
+  rpc CreateNamespace(CreateNamespaceRequest) returns (CreateNamespaceResponse) {
+    option (google.api.http) = {
+      post: "/v1/namespaces/"
+      body: "*"
+    };
+  };
+  rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse) {
+    option (google.api.http) = {
+      get: "/v1/namespaces/"
+    };
+  };
+  rpc GetNamespace(GetNamespaceRequest) returns (GetNamespaceResponse) {
+    option (google.api.http) = {
+      get: "/v1/namespaces/{namespace_id}"
+    };
+  };
+  rpc DeleteNamespace(DeleteNamespaceRequest) returns (DeleteNamespaceResponse) {
+    option (google.api.http) = {
+      delete: "/v1/namespaces/{namespace_id}"
+    };
+  };
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse) {
+    option (google.api.http) = {
+      get: "/v1/groups"
+    };
+  };
+  rpc CreateConfiguration(CreateConfigurationRequest) returns (CreateConfigurationResponse) {
+    option (google.api.http) = {
+      post: "/v1/configurations"
+      body: "*"
+    };
+  };
+  rpc ListConfigurations(ListConfigurationsRequest) returns (ListConfigurationsResponse) {
+    option (google.api.http) = {
+      get: "/v1/configurations"
+    };
+  };
+  rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse) {
+    option (google.api.http) = {
+      get: "/v1/configurations"
+    };
+  };
+  rpc ListHistoryConfigurations(ListHistoryConfigurationsRequest) returns (ListHistoryConfigurationsResponse) {
+    option (google.api.http) = {
+      get: "/v1/configurations/history"
+    };
+  };
+  rpc DeleteConfiguration(DeleteConfigurationRequest) returns (DeleteConfigurationResponse) {
+    option (google.api.http) = {
+      delete: "/v1/configurations"
+    };
+  };
 }
 
-
-message ConfigEntry {
-  string namespace = 1;
+message Namespace {
+  string namespace_id = 1[json_name="namespace_id"];
   string name = 2;
-  string data = 3;
+  uint32 config_count = 3[json_name="config_count"];
+  uint32 quota = 4;
 }
 
-message GetRequest {
-  string namespace = 1;
+message Configuration {
+  string namespace_id = 1[json_name="namespace_id"];
+  string data_id = 2[json_name="data_id"];
+  string group = 3;
+  string content = 4;
+  string format = 5;
+  uint64 version = 6;
+}
+
+message CreateNamespaceRequest {
+  string name = 1;
+}
+
+message CreateNamespaceResponse {
+  string namespace_id = 1[json_name="namespace_id"];
+}
+
+message ListNamespacesRequest {
+
+}
+
+message ListNamespacesResponse {
+  repeated Namespace namespaces = 1;
+}
+
+message GetNamespaceRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+}
+
+message GetNamespaceResponse {
+  Namespace namespace = 1;
+}
+
+message DeleteNamespaceRequest {
+  string namespace_id = 1;
+}
+
+message DeleteNamespaceResponse {
+}
+
+message CreateGroupRequest {
+  string namespace_id = 1[json_name="namespace_id"];
   string name = 2;
 }
 
-message GetResponse {
-  ConfigEntry entry = 1;
+message CreateGroupResponse {
 }
 
-message SaveRequest {
-  string namespace = 1;
-  string name = 2;
-  ConfigEntry entry = 3;
+message ListGroupsRequest {
+  string namespace_id = 1[json_name="namespace_id"];
 }
 
-message SaveResponse {
+message ListGroupsResponse {
+  repeated string groups = 1;
+}
+
+
+message CreateConfigurationRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+  string data_id = 2[json_name="data_id"];
+  string group = 3;
+  string content = 4;
+  string format = 5;
+}
+
+message CreateConfigurationResponse {
 
 }
 
-message HistoryRequest {
-  string namespace = 1;
-  string name = 2;
+message ListConfigurationsRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+  string group = 2;
 }
 
-message HistoryResponse {
-  repeated ConfigEntry entries = 1;
+message ListConfigurationsResponse {
+  repeated Configuration configurations = 1;
 }
 
-message DeleteRequest {
-  string namespace = 1;
-  string name = 2;
+message GetConfigurationRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+  string data_id = 2[json_name="data_id"];
+  string group = 3;
 }
 
-message DeleteResponse {
+message GetConfigurationResponse {
+  Configuration configuration = 1;
+}
+
+message ListHistoryConfigurationsRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+  string data_id = 2[json_name="data_id"];
+  string group = 3;
+}
+
+message ListHistoryConfigurationsResponse {
+  repeated Configuration configurations = 1;
+}
+
+message DeleteConfigurationRequest {
+  string namespace_id = 1[json_name="namespace_id"];
+  string data_id = 2[json_name="data_id"];
+  string group = 3;
+}
+
+message DeleteConfigurationResponse {
 
 }

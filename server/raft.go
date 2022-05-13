@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Lunarhalos/go-acm/pkg/raft/transport"
+	"github.com/Lunarhalos/go-acm/pkg/hashicorp-raft/transport"
 	"github.com/hashicorp/raft"
 	raftboltdb "github.com/hashicorp/raft-boltdb"
 	"github.com/hashicorp/serf/serf"

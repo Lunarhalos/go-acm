@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"io"
 
-	"github.com/Lunarhalos/go-acm/api/acmserverpb"
+	pb "github.com/Lunarhalos/go-acm/api/acmserverpb"
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
@@ -14,8 +14,10 @@ import (
 type MessageType uint8
 
 const (
-	MessageTypeSave MessageType = iota
-	MessageTypeDelete
+	MessageTypeCreateNamespace MessageType = iota
+	MessageTypeDeleteNamespace
+	MessageTypeCreateConfiguration
+	MessageTypeDeleteConfiguration
 )
 
 // Encode is used to encode a Protoc object with type prefix
@@ -49,36 +51,59 @@ func (fsm *acmFSM) Apply(l *raft.Log) interface{} {
 	fsm.logger.WithField("command", msgType).Debug("fsm: received command")
 
 	switch msgType {
-	case MessageTypeSave:
-		return fsm.applySaveEntry(buf[1:])
-	case MessageTypeDelete:
-		return fsm.applyDeleteEntry(buf[1:])
+	case MessageTypeCreateNamespace:
+		return fsm.applyCreateNamespace(buf[1:])
+	case MessageTypeDeleteNamespace:
+		return fsm.applyDeleteNamespace(buf[1:])
+	case MessageTypeCreateConfiguration:
+		return fsm.applyCreateConfiguration(buf[1:])
+	case MessageTypeDeleteConfiguration:
+		return fsm.applyDeleteConfiguration(buf[1:])
 	}
 	return nil
 }
 
-func (fsm *acmFSM) applySaveEntry(buf []byte) interface{} {
-	var pe acmserverpb.ConfigEntry
-	if err := proto.Unmarshal(buf, &pe); err != nil {
+func (fsm *acmFSM) applyCreateNamespace(buf []byte) interface{} {
+	var namespace pb.Namespace
+	if err := proto.Unmarshal(buf, &namespace); err != nil {
 		return err
 	}
-	e := &ConfigEntry{
-		Namespace: pe.Namespace,
-		Name:      pe.Name,
-		Data:      []byte(pe.Data),
-	}
-	if err := fsm.store.Save(e); err != nil {
+	if err := fsm.store.CreateNamespace(&namespace); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (fsm *acmFSM) applyDeleteEntry(buf []byte) interface{} {
-	var pdr acmserverpb.DeleteRequest
+func (fsm *acmFSM) applyDeleteNamespace(buf []byte) interface{} {
+	var pdr pb.DeleteNamespaceRequest
 	if err := proto.Unmarshal(buf, &pdr); err != nil {
 		return err
 	}
-	err := fsm.store.Delete(pdr.Namespace, pdr.Name)
+	err := fsm.store.DeleteNamespace(pdr.NamespaceId)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (fsm *acmFSM) applyCreateConfiguration(buf []byte) interface{} {
+	var configuration pb.Configuration
+	if err := proto.Unmarshal(buf, &configuration); err != nil {
+		return err
+	}
+
+	if err := fsm.store.CreateConfiguration(&configuration); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (fsm *acmFSM) applyDeleteConfiguration(buf []byte) interface{} {
+	var pdr pb.DeleteConfigurationRequest
+	if err := proto.Unmarshal(buf, &pdr); err != nil {
+		return err
+	}
+	err := fsm.store.DeleteConfiguration(pdr.NamespaceId, pdr.Group, pdr.DataId)
 	if err != nil {
 		return err
 	}

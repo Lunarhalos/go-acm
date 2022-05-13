@@ -2,18 +2,47 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
+	pb "github.com/Lunarhalos/go-acm/api/acmserverpb"
 	"github.com/dgraph-io/badger/v3"
 	"github.com/sirupsen/logrus"
 )
 
+const (
+	namespacePrefix     = "acm:namespace"
+	configurationPrefix = "acm:configuration"
+)
+
+var (
+	// ErrDuplicatedNamespace ...
+	ErrDuplicatedNamespace = errors.New("duplicated namespace")
+)
+
+func newConfigurationKey(namespaceID, group, dataID string) string {
+	return fmt.Sprintf("%s:%s:%s:%s", configurationPrefix, namespaceID, group, dataID)
+}
+
+func newNSConfigurationPrefix(namespaceID string) string {
+	return fmt.Sprintf("%s:%s", configurationPrefix, namespaceID)
+}
+
+func newNamespaceKey(namespaceID string) string {
+	return fmt.Sprintf("%s:%s", namespacePrefix, namespaceID)
+}
+
 type Storage interface {
-	Save(entry *ConfigEntry) error
-	Get(namespace, name string) (*ConfigEntry, error)
-	Delete(namespace, name string) error
-	History(namespace, name string) ([]*ConfigEntry, error)
+	CreateNamespace(namespace *pb.Namespace) error
+	ListNamespaces() ([]*pb.Namespace, error)
+	GetNamespace(namespaceID string) (*pb.Namespace, error)
+	DeleteNamespace(namespaceID string) error
+	CreateConfiguration(configuration *pb.Configuration) error
+	ListConfigurations(namespaceID string) ([]*pb.Configuration, error)
+	GetConfiguration(namespaceID, group, dataID string) (*pb.Configuration, error)
+	ListHistoryConfigurations(namespaceID, group, dataID string) ([]*pb.Configuration, error)
+	DeleteConfiguration(namespaceID, group, dataID string) error
 	Snapshot(w io.WriteCloser) error
 	Restore(r io.ReadCloser) error
 	Shutdown() error
@@ -36,72 +65,102 @@ func NewStore(logger *logrus.Entry) (*Store, error) {
 	return store, nil
 }
 
-func newLatestKey(namespace, name string) string {
-	return fmt.Sprintf("latest_%s_%s", namespace, name)
-}
+func (s *Store) CreateNamespace(namespace *pb.Namespace) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		var namespaceKey = newNamespaceKey(namespace.NamespaceId)
+		// 查询是否已经存在
+		_, err := txn.Get([]byte(namespaceKey))
+		if err == nil {
+			return ErrDuplicatedNamespace
+		}
 
-func newHistoryKey(namespace, name string) string {
-	return fmt.Sprintf("history_%s_%s", namespace, name)
-}
-
-// Save 保存配置条目
-func (s *Store) Save(entry *ConfigEntry) error {
-	if err := entry.Validate(); err != nil {
+		if !errors.Is(err, badger.ErrKeyNotFound) {
+			return err
+		}
+		data, _ := json.Marshal(namespace)
+		if err := txn.Set([]byte(namespaceKey), data); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return err
 	}
+	return nil
+}
+func (s *Store) ListNamespaces() ([]*pb.Namespace, error) {
+	var namespaces []*pb.Namespace
+	err := s.db.View(func(txn *badger.Txn) error {
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(namespacePrefix)
+		opt.AllVersions = false
 
-	err := s.db.Update(func(txn *badger.Txn) error {
-		var (
-			historyEntries []*ConfigEntry
-			latestKey      = newLatestKey(entry.Namespace, entry.Name)
-			historyKey     = newHistoryKey(entry.Namespace, entry.Name)
-		)
+		itr := txn.NewIterator(opt)
+		defer itr.Close()
 
-		// 查询历史配置
-		if item, err := txn.Get([]byte(historyKey)); err != nil {
-			if err != badger.ErrKeyNotFound {
-				return err
-			}
-		} else {
+		for itr.Rewind(); itr.Valid(); itr.Next() {
+			item := itr.Item()
 			if err := item.Value(func(val []byte) error {
-				if err := json.Unmarshal(val, &historyEntries); err != nil {
+				var namespace pb.Namespace
+				if err := json.Unmarshal(val, &namespace); err != nil {
 					return err
 				}
+				namespaces = append(namespaces, &namespace)
 				return nil
 			}); err != nil {
 				return err
 			}
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return namespaces, nil
+}
 
-		// 查询当前配置
-		if item, err := txn.Get([]byte(latestKey)); err != nil {
-			if err != badger.ErrKeyNotFound {
-				return err
-			}
-		} else {
-			if err := item.Value(func(val []byte) error {
-				// 把当前配置加入到历史记录
-				historyEntries = append(historyEntries, &ConfigEntry{
-					Namespace: entry.Namespace,
-					Name:      entry.Name,
-					Data:      val,
-					Version:   item.Version(),
-				})
-				return nil
-			}); err != nil {
-				return err
-			}
+func (s *Store) GetNamespace(namespaceID string) (*pb.Namespace, error) {
+	var namespace pb.Namespace
+	err := s.db.View(func(txn *badger.Txn) error {
+		namespaceKey := newNamespaceKey(namespaceID)
+		item, err := txn.Get([]byte(namespaceKey))
+		if err != nil {
+			return err
 		}
-		if len(historyEntries) > 0 {
-			historyValue, err := json.Marshal(&historyEntries)
-			if err != nil {
-				return err
-			}
-			if err := txn.Set([]byte(historyKey), historyValue); err != nil {
-				return err
-			}
+		data, err := item.ValueCopy(nil)
+		if err != nil {
+			return err
 		}
-		if err := txn.Set([]byte(latestKey), entry.Data); err != nil {
+		if err := json.Unmarshal(data, &namespace); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &namespace, nil
+}
+
+func (s *Store) DeleteNamespace(namespaceID string) error {
+	if err := s.db.Update(func(txn *badger.Txn) error {
+		namespaceKey := newNamespaceKey(namespaceID)
+		if err := txn.Delete([]byte(namespaceKey)); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreateConfiguration 保存配置条目
+func (s *Store) CreateConfiguration(configuration *pb.Configuration) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		configurationKey := newConfigurationKey(configuration.NamespaceId, configuration.Group, configuration.DataId)
+		data, _ := json.Marshal(configuration)
+		if err := txn.Set([]byte(configurationKey), data); err != nil {
 			return err
 		}
 		return nil
@@ -112,11 +171,42 @@ func (s *Store) Save(entry *ConfigEntry) error {
 	return nil
 }
 
-func (s *Store) Get(namespace, name string) (*ConfigEntry, error) {
-	var latest *ConfigEntry
+func (s *Store) ListConfigurations(namespaceID string) ([]*pb.Configuration, error) {
+	var configurations []*pb.Configuration
 	err := s.db.View(func(txn *badger.Txn) error {
-		latestKey := newLatestKey(namespace, name)
-		item, err := txn.Get([]byte(latestKey))
+		opt := badger.DefaultIteratorOptions
+		opt.Prefix = []byte(newNSConfigurationPrefix(namespaceID))
+		opt.AllVersions = false
+
+		itr := txn.NewIterator(opt)
+		defer itr.Close()
+		for itr.Rewind(); itr.Valid(); itr.Next() {
+			item := itr.Item()
+			if err := item.Value(func(val []byte) error {
+				var configuration pb.Configuration
+				if err := json.Unmarshal(val, &configuration); err != nil {
+					return err
+				}
+				configuration.Version = item.Version()
+				configurations = append(configurations, &configuration)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return configurations, nil
+}
+
+func (s *Store) GetConfiguration(namespaceID, group, dataID string) (*pb.Configuration, error) {
+	var configuration pb.Configuration
+	err := s.db.View(func(txn *badger.Txn) error {
+		configurationKey := newConfigurationKey(namespaceID, group, dataID)
+		item, err := txn.Get([]byte(configurationKey))
 		if err != nil {
 			return err
 		}
@@ -124,52 +214,51 @@ func (s *Store) Get(namespace, name string) (*ConfigEntry, error) {
 		if err != nil {
 			return err
 		}
-		latest = &ConfigEntry{
-			Namespace: namespace,
-			Name:      name,
-			Data:      data,
-			Version:   item.Version(),
+		if err := json.Unmarshal(data, &configuration); err != nil {
+			return err
 		}
+		configuration.Version = item.Version()
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return latest, nil
+	return &configuration, nil
 }
 
-func (s *Store) History(namespace, name string) ([]*ConfigEntry, error) {
-	var history []*ConfigEntry
+func (s *Store) ListHistoryConfigurations(namespaceID, group, dataID string) ([]*pb.Configuration, error) {
+	var configurations []*pb.Configuration
 	err := s.db.View(func(txn *badger.Txn) error {
-		historyKey := newHistoryKey(namespace, name)
-		item, err := txn.Get([]byte(historyKey))
-		if err != nil {
-			return err
-		}
-		if err := item.Value(func(val []byte) error {
-			if err := json.Unmarshal(val, &history); err != nil {
+		configurationKey := newConfigurationKey(namespaceID, group, dataID)
+		opt := badger.DefaultIteratorOptions
+		itr := txn.NewKeyIterator([]byte(configurationKey), opt)
+		defer itr.Close()
+		for itr.Rewind(); itr.Valid(); itr.Next() {
+			item := itr.Item()
+			if err := item.Value(func(val []byte) error {
+				var configuration pb.Configuration
+				if err := json.Unmarshal(val, &configuration); err != nil {
+					return err
+				}
+				configuration.Version = item.Version()
+				configurations = append(configurations, &configuration)
+				return nil
+			}); err != nil {
 				return err
 			}
-			return nil
-		}); err != nil {
-			return err
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	return history, nil
+	return configurations, nil
 }
 
-func (s *Store) Delete(namespace, name string) error {
+func (s *Store) DeleteConfiguration(namespaceID, group, dataID string) error {
 	if err := s.db.Update(func(txn *badger.Txn) error {
-		latestKey := newLatestKey(namespace, name)
-		historyKey := newHistoryKey(namespace, name)
-		if err := txn.Delete([]byte(latestKey)); err != nil {
-			return err
-		}
-		if err := txn.Delete([]byte(historyKey)); err != nil {
+		configurationKey := newConfigurationKey(namespaceID, group, dataID)
+		if err := txn.Delete([]byte(configurationKey)); err != nil {
 			return err
 		}
 		return nil

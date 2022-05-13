@@ -17,6 +17,7 @@ const (
 	DefaultAdvertiseClientUrls = "127.0.0.1:9527"
 	DefaultListenPeerUrls      = "127.0.0.1:9528"
 	DefaultAdvertisePeerUrls   = "127.0.0.1:9528"
+	DefaultHTTPAddr            = "0.0.0.0:9001"
 	DefaultRetryInterval       = time.Second * 30
 )
 
@@ -54,6 +55,7 @@ func DefaultConfig() *Config {
 		AdvertisePeerUrls:   DefaultAdvertisePeerUrls,
 		ListenClientUrls:    DefaultListenClientUrls,
 		AdvertiseClientUrls: DefaultAdvertiseClientUrls,
+		HTTPAddr:            DefaultHTTPAddr,
 		DataDir:             "acm.data",
 		Profile:             "lan",
 		LogLevel:            "info",
